@@ -1,2 +1,2 @@
 #lang setup/infotab
-(define single-collection "github")
+(define single-collection "octokit")
