@@ -155,6 +155,54 @@
    (define/public (delete-gist id)
      (delete (format "/gists/~a" id) #:auth #t))))
 
+(define issues-trait
+  (trait 
+   ;; none of the query parameters are supported
+   (inherit get put post delete patch)
+   (define/public (issues #:organization [org #f] #:repo [repo #f])
+     (cond [repo (get (format "/repos/~a/issues" repo) #:auth 'maybe)]
+           [org (get (format "/orgs/~a/issues" org) #:auth #t)]
+           [else (get (format "/user/issues") #:auth #t)]))
+   (define/public (issue repo n)
+     (get (format "/repos/~a/issues/~a" repo n) #:auth 'maybe))
+   (define/public (create-issue repo title [body 'null] [options (hash)])
+     (post (format "/repos/~a/issues" repo)
+           (hash-set* options 'title title 'body body)
+           #:auth #t))
+   (define/public (edit-issue repo n [title 'null] [body 'null] [options (hash)])
+     (patch (format "/repos/~a/issues/~a" repo n)
+            (hash-set* options 'title title 'body body)
+            #:auth #t))
+   ;; n is issue number or 'all
+   (define/public (issue-comments repo n)
+     (if (eq? n 'all)
+         (get (format "/repos/~a/issues/comments" repo) #:auth 'maybe)
+         (get (format "/repos/~a/issues/~a/comments" repo n) #:auth 'maybe)))
+   (define/public (issue-comment repo n id)
+     (get (format "/repos/~a/issues/~a/comments/~a" repo n id) #:auth 'maybe))
+   (define/public (comment-issue repo n comment)
+     (post (format "/repos/~a/issues/~a/comments" repo n)
+           (hash 'body comment) #:auth #t))
+   (define/public (edit-issue-comment repo n id comment)
+     (patch (format "/repos/~a/issues/~a/comments/~a" repo n id)
+            (hash 'body comment) #:auth #t))
+   (define/public (delete-issue-comment repo n id)
+     (delete (format "/repos/~a/issues/~a/comments/~a" repo n id) #:auth #t))
+   (define/public (create-issue-label repo label [color "FFFFFF"])
+     (post (format "/repos/~a/labels" repo) (hash 'name label 'color color) #:auth #t))
+   (define/public (update-issue-label repo label [color "FFFFFF"])
+     (patch (format "/repos/~a/labels/~a" repo label) (hash 'name label 'color color) #:auth #t))
+   (define/public (delete-issue-label repo label)
+     (delete (format "/repos/~a/labels/~a" repo label) #:auth #t))
+   (define/public (issue-labels repo n)
+     (get (format "/repos/~a/issues/~a/labels" repo n) #:auth 'maybe))
+   (define/public (add-issue-labels repo n labels)
+     (post (format "/repos/~a/issues/~a/labels" repo n) labels #:auth #t))
+   (define/public (remove-issue-label repo n label)
+     (delete (format "/repos/~a/issues/~a/labels/~a" repo n label) #:auth #t))
+   (define/public (set-issue-labels repo n labels)
+     (put (format "/repos/~a/issues/~a/labels" repo n) labels #:auth #t))))
+
 ;; for performing actions on behalf of a user
 (define client-trait 
   (trait 
@@ -166,11 +214,7 @@
     (define/public (authorizations [n #f])
       (if n
           (send this get (format "/authorizations/~a" n) #:auth 'basic)
-          (send this get "/authorizations" #:auth 'basic)))
-        
-    (define/public (post-bug repo title [body 'null] [options (hash)])
-      (send this post (format "/repos/~a/issues" repo)
-            (hash-set* options 'title title 'body body)))))
+          (send this get "/authorizations" #:auth 'basic)))))
  
 (define github% 
   (class object% 
