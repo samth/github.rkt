@@ -96,11 +96,24 @@
 (define gist-trait
   (trait
    (inherit get post put delete)
-   ;; #:user (or/c #f Username)
-   (define/public (gists #:user [u #f])
+   ;; (or/c #f Username)
+   (define/public (gists [u #f])
      (match u
        [(? string?) (get (format "/users/~a/gists" u) #:auth 'maybe)]
        [#f          (get "/gists/public")]))
+   (define/public (gist n)
+     (get (format "/gist/~a" n) #:auth 'maybe))
+   (define/public (gist-comment n [id #f])
+     (if id 
+         (get (format "/gist/~a/comments/~a" n id) #:auth 'maybe)
+         (get (format "/gist/~a/comments" n) #:auth 'maybe)))
+   (define/public (gist-add-comment n comment)
+     (post (format "/gist/~a/comments" n) (hash 'body comment) #:auth #t))
+   ;; #f to delete
+   (define/public (gist-edit-comment n id comment)
+     (if comment 
+         (post (format "/gist/~a/comments/~a" n id) (hash 'body comment) #:auth #t)
+         (delete (format "/gist/~a/comments/~a" n id) #:auth #t)))
    (define/public (create-gist #:public [public? #t]
                                #:desc [desc 'null]
                                #:auth [auth 'maybe]
