@@ -7,6 +7,6 @@ Example:
 ```racket
 #lang racket
 (require octokit)
-(define c (new client% [login "samth"] [password ""]))
-(send c create-gist (hash "a-file" "some content"))
+(define c (new octokit%))
+(hash-ref (send c create-gist (hash "a-file" "some content")) 'html_url)
 ```
