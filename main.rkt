@@ -21,7 +21,7 @@
    (inherit-field endpoint)
    (inherit mk-auth has-auth?)
     (super-new)
-   (define/public (request method url [data 'null] #:auth [auth #f])
+   (define/public (request method url [data 'null] #:auth [auth #f] #:json-result [json? #t])
      (define auth-header 
        (case auth
          [(#f) #f]
@@ -32,7 +32,7 @@
      (define (simple f)
        (define result-port (f (string->url url) hs))
        (purify-port result-port) ;; currently ignored
-       (bytes->jsexpr (port->bytes result-port)))
+       ((if json? bytes->jsexpr values) (port->bytes result-port)))
      (define (simple/post f #:data [data #""])
        (simple (λ (u hs) (f u data hs))))
      (match method
@@ -41,23 +41,24 @@
                 (string->url url) hs
                 #:redirections 5))
              (bytes->jsexpr (port->bytes p))]
-       ['post (simple/post #:data (jsexpr->bytes data))]
-       ['patch (request 'post url data #:auth auth)] ;; net/url doesn't support PATCH
-       ['head (simple head-pure-port)]
-       ['delete (simple delete-pure-port)]
-       ['put (simple/post put-pure-port)]))
+       ['post (simple/post post-impure-port #:data (jsexpr->bytes data))]
+       ;; net/url doesn't support PATCH so we use POST
+       ['patch (simple/post post-impure-port #:data (jsexpr->bytes data))]
+       ['head (simple head-impure-port)]
+       ['delete (simple delete-impure-port)]
+       ['put (simple/post put-impure-port)]))
    
-   (define/public (post url data #:auth [auth #f])
-     (request 'post (string-append endpoint url) data
-              #:auth auth))
-    (define/public (patch url data #:auth [auth #f])
-     (request 'patch (string-append endpoint url) data
-              #:auth auth))
-    (define-syntax-rule (def-http method ...)
-      (begin (define/public (method url #:auth [auth #f])
-               (request 'method (string-append endpoint url) #:auth auth))
+   
+    (define-syntax-rule (def-http/body method ...)
+      (begin (define/public (method url data #:auth [auth #f]  #:json-result [json? #t])
+               (request 'method (string-append endpoint url) data #:auth auth #:json-result json?))
              ...))
-   (def-http get put delete head)))
+    (define-syntax-rule (def-http method ...)
+      (begin (define/public (method url #:auth [auth #f]  #:json-result [json? #t])
+               (request 'method (string-append endpoint url) #:auth auth #:json-result json?))
+             ...))
+    (def-http/body post patch)
+    (def-http      get put delete head)))
 
 (define no-auth-trait
   (trait
@@ -87,8 +88,11 @@
 ;; for general github methods that require no authorization
 (define gh-trait
   (trait
-   (inherit get post)
+   (inherit get post request)
    (define/public (meta) (get "/meta"))
+   (define/public (markdown content #:mode [mode 'null] #:context [ctx 'null])
+     ;; use `request` explicitly b/c this doesn't return JSON
+     (post "/markdown" (hash 'text content 'mode mode 'context ctx) #:auth #f #:json-result #f))
    (define/public (rate-limit) (get "/rate_limit"))))
 
 (define (->symbol v) (if (symbol? v) v (string->symbol (~a v))))
@@ -226,10 +230,12 @@
     (init-field [login #f] [oauth-token #f] [password #f])
     (super-new)))
 
-(define methods (trait->mixin (trait-sum gh-trait gist-trait)))
-(define client-methods (trait->mixin (trait-sum gh-trait gist-trait client-trait)))
+(define methods (trait->mixin (trait-sum gh-trait gist-trait issues-trait)))
+(define client-methods (trait->mixin (trait-sum gh-trait gist-trait issues-trait client-trait)))
 
+;; for a real client
 (define client% (client-methods (http-mixin ((trait->mixin auth-trait) client-state%))))
+;; for un-authenticated use
 (define octokit%  (methods (http-mixin ((trait->mixin no-auth-trait) github%))))
 
 (provide client% octokit%)
