@@ -25,23 +25,26 @@
   (define username (new text-field% 
                         [label message]
                         [parent f]
-                        [callback (λ (t e) 
-                                    (cond
-                                      [(eq? (send e get-event-type) 'text-field-enter)
-                                       (done #t)]
-                                      [else (do-validation username validate)]))]
+                        [callback 
+                         (λ (t e) 
+                           (cond
+                             [(eq? (send e get-event-type) 'text-field-enter)
+                              (done #t)]
+                             [else (do-validation username validate)]))]
                         [init-value ""]
                         [style (list* 'single 'vertical-label style)]))
   (define password (new text-field% 
                         [label password-message]
                         [parent f]
-                        [callback (λ (t e) 
-                                    (cond
-                                      [(eq? (send e get-event-type) 'text-field-enter)
-                                       (done #t)]
-                                      [else (do-validation password p-validate)]))]
+                        [callback
+                         (λ (t e) 
+                           (cond
+                             [(eq? (send e get-event-type) 'text-field-enter)
+                              (done #t)]
+                             [else (do-validation password p-validate)]))]
                         [init-value ""]
-                        [style (list* 'password 'single 'vertical-label style)]))
+                        [style
+                         (list* 'password 'single 'vertical-label style)]))
   (define default-background (send username get-field-background))
   (define (do-validation field validate)
     (send field set-field-background 
@@ -52,8 +55,10 @@
   (send p set-alignment 'right 'center)
   (send f stretchable-height #f)
   (ok-cancel
-   (lambda () (make-object button% "Authenticate" p (λ (b e) (done #t)) '(border)))
-   (lambda () (make-object button% "Cancel" p (λ (b e) (done #f)))))
+   (lambda () 
+     (make-object button% "Authenticate" p (λ (b e) (done #t)) '(border)))
+   (lambda ()
+     (make-object button% "Cancel" p (λ (b e) (done #f)))))
   (send (send username get-editor) select-all)
   (send username focus)
   (send f center)

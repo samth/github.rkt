@@ -10,7 +10,7 @@
 (preferences:set-default 'github:oauth-token #f (λ _ #t))
 
 (define ua-header
-  "User-Agent: Racket github package; github.com/samth/octokit.rkt")
+  "User-Agent: Racket 'octokit' package; github.com/samth/octokit.rkt")
 
 (define (http-authorization-header username password)
   (let ([username-bytes (string->bytes/utf-8 username)]
@@ -39,7 +39,8 @@
       (define (simple f)
         (define result-port (f (string->url url) hs))
         (define headers (purify-port result-port)) ;; currently ignored
-        (define result ((if json? bytes->jsexpr values) (port->bytes result-port)))
+        (define result 
+          ((if json? bytes->jsexpr values) (port->bytes result-port)))
         (if headers? (values result headers) result))
       (define (simple/post f #:data [data #""])
         (simple (λ (u hs) (f u data hs))))
@@ -50,7 +51,7 @@
                  #:redirections 5))
               (define result (bytes->jsexpr (port->bytes p)))
               (if headers? (values result headers) result)]
-        ['post (displayln data)(simple/post post-impure-port #:data (jsexpr->bytes data))]
+        ['post (simple/post post-impure-port #:data (jsexpr->bytes data))]
         ;; net/url doesn't support PATCH so we use POST
         ['patch (simple/post post-impure-port #:data (jsexpr->bytes data))]
         ['head (simple head-impure-port)]
@@ -203,7 +204,8 @@
    (define/public (remove-collaborator repo user)
      (delete (format "/repos/~a/collaborators/~a" repo user) #:auth #t))
    (define/public (collaborator? repo user)
-     (get/check-status (format "/repos/~a/collaborators/~a" repo user) #:auth 'maybe))))
+     (get/check-status (format "/repos/~a/collaborators/~a" repo user)
+                       #:auth 'maybe))))
 
 (define issues-trait
   (trait 
@@ -249,7 +251,8 @@
    (define/public (issue-labels repo n)
      (get (format "/repos/~a/issues/~a/labels" repo n) #:auth 'maybe))
    (define/public (issue-label? repo n label)
-     (get/check-status (format "/repos/~a/issues/~a/labels/~a" repo n label) #:auth 'maybe))
+     (get/check-status (format "/repos/~a/issues/~a/labels/~a" repo n label)
+                       #:auth 'maybe))
    (define/public (add-issue-labels repo n labels)
      (post (format "/repos/~a/issues/~a/labels" repo n) labels #:auth #t))
    (define/public (remove-issue-label repo n label)
@@ -267,7 +270,8 @@
       (post "/authorizations" options #:auth 'basic))
    
    (define/public (get+save-token [options (hash)])
-     (define-values (r hs) (post "/authorizations" options #:auth 'basic #:headers #t))     
+     (define-values (r hs)
+       (post "/authorizations" options #:auth 'basic #:headers #t))     
      (unless (= 201 (status-code hs))
        (error 'get+save-token "failed to retrieve token"))     
      (define token (hash-ref r 'token))
@@ -294,6 +298,10 @@
           (and (set! oauth-token p-token) #t)
           #f))
     
+    (define/public (delete-token)
+      (set! oauth-token #f)
+      (preferences:set 'github:oauth-token #f))
+    
     (define/public (write-token)
       (if oauth-token
           (preferences:set 'github:oauth-token oauth-token)
@@ -302,12 +310,17 @@
     (define/public (token-available?)
       (or oauth-token (load-token)))
     
-    (define/public (authorize #:scopes [scopes 'null])
+    (define/public (authorize #:scopes [scopes (list "gist" "public_repo")])
       (unless (token-available?)
         (unless (and login password)
-          (error 'authorize "login name and password required for authorization"))
+          (error 'authorize
+                 "login name and password required for authorization"))
         (send this get+save-token (hash 'scopes scopes)))
-      (write-token))))
+      (write-token))
+    
+    (define/public (reauthorize)      
+      (delete-token)
+      (authorize))))
 
 (define (make-client callback)
   (define c (new client%))
@@ -318,9 +331,12 @@
               (send c authorize)])
   c)
 
-(define methods (trait->mixin (trait-sum gh-trait gist-trait issues-trait collab-trait)))
+(define methods
+  (trait->mixin
+   (trait-sum gh-trait gist-trait issues-trait collab-trait)))
 (define client-methods
-  (trait->mixin (trait-sum gh-trait gist-trait issues-trait client-trait collab-trait)))
+  (trait->mixin
+   (trait-sum gh-trait gist-trait issues-trait client-trait collab-trait)))
 
 ;; for a real client
 (define client%

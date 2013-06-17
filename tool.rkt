@@ -4,9 +4,11 @@
          racket/gui/base
          racket/unit
          mrlib/switchable-button
-         racket/pretty
+         racket/pretty racket/runtime-path
          "main.rkt" "gui.rkt")
 (provide tool@)
+
+(define-runtime-path github-logo "GitHub-Mark-16px.png")
  
 (define tool@
   (unit
@@ -26,7 +28,7 @@
                     (label "Post Gist")
                     (callback (λ (button)
                                 (post-gist (get-definitions-text))))
-                    [bitmap (make-bitmap 1 1)]
+                    [bitmap (read-bitmap github-logo)]
                     (parent (get-button-panel)))))
           (register-toolbar-button btn #:number 11)
           (send (get-button-panel) change-children
@@ -34,14 +36,17 @@
                   (cons btn (remq btn l)))))))
  
     (define (post-gist text)
-      (define name? (send text get-filename))
-      (define name (or name "unnamed.rkt"))
+      (define name (let ([fname (send text get-filename)])
+                     (cond [fname
+                            (define-values (base n ?) (split-path fname))
+                            n]
+                           [else "unnamed.rkt"])))
+      (define frame (send (send text get-tab) get-frame))
       (define client (gui-auth))
-      (define result (send client create-gist (hash name (send text get-flattened-text))))
-      (printf ">>> result\n")
-      (pretty-print result)
-      (define url (hash-ref result 'http_url))
-      (send text set-status-text url))
+      (define result
+        (send client create-gist (hash name (send text get-flattened-text))))
+      (define url (hash-ref result 'html_url))
+      (send frame set-status-text url))
  
     (define (phase1) (void))
     (define (phase2) (void))
