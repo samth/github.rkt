@@ -9,6 +9,9 @@
 (define-local-member-name password)
 (preferences:set-default 'github:oauth-token #f (λ _ #t))
 
+(define (forget-github-token!)
+  (preferences:set 'github:oauth-token #f))
+
 (define ua-header
   "User-Agent: Racket 'octokit' package; github.com/samth/octokit.rkt")
 
@@ -300,7 +303,7 @@
     
     (define/public (delete-token)
       (set! oauth-token #f)
-      (preferences:set 'github:oauth-token #f))
+      (forget-github-token!))
     
     (define/public (write-token)
       (if oauth-token
@@ -347,4 +350,4 @@
 ;; for un-authenticated use
 (define octokit%  (methods (http-mixin ((trait->mixin no-auth-trait) github%))))
 
-(provide client% octokit% make-client)
+(provide client% octokit% make-client forget-github-token!)
