@@ -324,12 +324,15 @@
 
 (define (make-client callback)
   (define c (new client%))
-  (cond [(send c load-token) (void)]
-        [else (define-values (l p) (callback))
-              (set-field! login c l)
-              (set-field! password c p)
-              (send c authorize)])
-  c)
+  (if (send c load-token)
+      c
+      (match (callback)
+	[#f #f]
+	[(list l p)
+	 (set-field! login c l)
+	 (set-field! password c p)
+	 (send c authorize)
+	 c])))
 
 (define methods
   (trait->mixin

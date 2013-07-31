@@ -63,7 +63,7 @@
   (send username focus)
   (send f center)
   (send f show #t)
-  (and ok? (values (send username get-value) (send password get-value))))
+  (and ok? (list (send username get-value) (send password get-value))))
 
 (define (gui-auth)
   (make-client (λ () (get-username+password 
