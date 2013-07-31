@@ -210,6 +210,42 @@
      (get/check-status (format "/repos/~a/collaborators/~a" repo user)
                        #:auth 'maybe))))
 
+(define-local-member-name general-org-member?)
+
+(define orgs-trait
+  (trait
+   (inherit get put delete)
+
+   (define/public (orgs)
+     (get (format "/user/orgs") #:auth #t))
+   (define/public (org-members org)
+     (get (format "/orgs/~a/members" org) #:auth #t))
+   (define/public (org-public-members org)
+     (get (format "/orgs/~a/public_members" org) #:auth #t))
+
+   (define/public (general-org-member? org category user)
+     (define-values (b headers) (get (format "/orgs/~a/~a/~a" org category user)
+				     #:auth #t
+				     #:json-result #f
+				     #:headers #t))
+     (= (status-code headers) 204))
+
+   (define/public (org-member? org user)
+     (general-org-member? org "members" user))
+   (define/public (org-public-member? org user)
+     (general-org-member? org "public_members" user))
+
+   (define/public (org-delete-member! org user)
+     (delete (format "/orgs/~a/members/~a" org user) #:auth #t))
+
+   (define/public (set-org-membership-public! org user public?)
+     (if public?
+	 (put (format "/orgs/~a/public_members/~a" org user) #:auth #t)
+	 (delete (format "/orgs/~a/public_members/~a" org user) #:auth #t)))
+
+   (define/public (org-teams org)
+     (get (format "/orgs/~a/teams" org) #:auth #t))))
+
 (define issues-trait
   (trait 
    ;; none of the query parameters are supported
@@ -339,10 +375,10 @@
 
 (define methods
   (trait->mixin
-   (trait-sum gh-trait gist-trait issues-trait collab-trait)))
+   (trait-sum gh-trait gist-trait issues-trait collab-trait orgs-trait)))
 (define client-methods
   (trait->mixin
-   (trait-sum gh-trait gist-trait issues-trait client-trait collab-trait)))
+   (trait-sum gh-trait gist-trait issues-trait client-trait collab-trait orgs-trait)))
 
 ;; for a real client
 (define client%
