@@ -71,4 +71,5 @@
                       "GitHub User Name"
                       "GitHub Password"))))
 
-(provide gui-auth)
+(provide gui-auth
+	 get-username+password)
