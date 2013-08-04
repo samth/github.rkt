@@ -249,6 +249,12 @@
    (define/public (org-teams org)
      (get (format "/orgs/~a/teams" org) #:auth #t))))
 
+(define teams-trait
+  (trait
+   (inherit get put post delete)
+
+   ))
+
 (define issues-trait
   (trait 
    ;; none of the query parameters are supported
@@ -378,10 +384,10 @@
 
 (define methods
   (trait->mixin
-   (trait-sum gh-trait gist-trait issues-trait collab-trait orgs-trait)))
+   (trait-sum gh-trait gist-trait issues-trait collab-trait orgs-trait teams-trait)))
 (define client-methods
   (trait->mixin
-   (trait-sum gh-trait gist-trait issues-trait client-trait collab-trait orgs-trait)))
+   (trait-sum gh-trait gist-trait issues-trait client-trait collab-trait orgs-trait teams-trait)))
 
 ;; for a real client
 (define client%
