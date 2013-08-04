@@ -243,6 +243,9 @@
 	 (put (format "/orgs/~a/public_members/~a" org user) #:auth #t)
 	 (delete (format "/orgs/~a/public_members/~a" org user) #:auth #t)))
 
+   (define/public (org-repos org)
+     (get (format "/orgs/~a/repos" org) #:auth #t))
+
    (define/public (org-teams org)
      (get (format "/orgs/~a/teams" org) #:auth #t))))
 
