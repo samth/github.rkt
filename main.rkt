@@ -133,6 +133,20 @@
                  (format "Authorization: bearer ~a" oauth-token)
                  (http-authorization-header login password))]))))
 
+(define-syntax-rule (general-boolean-setter switch put delete url)
+  (let ((u url))
+    (if switch
+	(put u #:auth #t)
+	(delete u #:auth #t))))
+
+(define-syntax-rule (general-api-predicate get url)
+  ;; Different to get/check-status in that it treats ANY STATUS CODE
+  ;; OTHER THAN 204 as #f, rather than throwing an exception on
+  ;; anything other than 204 or 404.
+  (let ()
+    (define-values (b headers) (get url #:auth #t #:json-result #f #:headers #t))
+    (= (status-code headers) 204)))
+
 ;; for general github methods that require no authorization
 (define gh-trait
   (trait
@@ -225,38 +239,94 @@
      (get/check-status (format "/repos/~a/collaborators/~a" repo user)
                        #:auth 'maybe))))
 
-(define-local-member-name general-org-member?)
+(define repos-trait
+  (trait
+   (inherit get put post delete)
+
+   (define/public (user-repos [user #f])
+     (get (if user
+	      (format "/users/~a/repos" user)
+	      (format "/user/repos"))
+	  #:auth #t))
+
+   (define/public (repo-info repo)
+     (get (format "/repos/~a" repo) #:auth #t))
+
+   (define/public (repo-contributors repo)
+     (get (format "/repos/~a/contributors" repo) #:auth #t))
+
+   (define/public (repo-languages repo)
+     (get (format "/repos/~a/languages" repo) #:auth #t))
+
+   (define/public (repo-teams repo)
+     (get (format "/repos/~a/teams" repo) #:auth #t))
+
+   (define/public (repo-tags repo)
+     (get (format "/repos/~a/tags" repo) #:auth #t))
+
+   (define/public (repo-branches repo)
+     (get (format "/repos/~a/branches" repo) #:auth #t))
+
+   (define/public (repo-branch-info repo branch)
+     (get (format "/repos/~a/branches/~a" repo branch) #:auth #t))
+
+   (define/public (create-repo! #:name name
+				#:description [description ""]
+				#:homepage [homepage ""]
+				#:private [private #f]
+				#:issues? [issues? #t]
+				#:wiki? [wiki? #t]
+				#:downloads? [downloads? #t]
+				#:org [org-name #f]
+				#:team [team-id #f]
+				#:auto-init? [auto-init #f]
+				#:gitignore-template [gitignore-template #f])
+     (let* ((opts (hash 'name name
+			'description description
+			'homepage homepage
+			'private private
+			'has_issues issues?
+			'has_wiki wiki?
+			'has_downloads downloads?
+			'auto_init auto-init))
+	    (opts (if (and org-name team-id)
+		      (hash-set opts 'team_id team-id)
+		      opts))
+	    (opts (if gitignore-template
+		      (hash-set opts 'gitignore_template gitignore-template)
+		      opts)))
+       (post (if org-name
+		 (format "/orgs/~a/repos" org-name)
+		 "/user/repos")
+	     opts
+	     #:auth #t)))
+
+   (define/public (delete-repo! repo)
+     (delete (format "/repos/~a" repo) #:auth #t))
+
+   ))
 
 (define orgs-trait
   (trait
    (inherit get put delete)
 
-   (define/public (orgs)
+   (define/public (user-orgs)
      (get (format "/user/orgs") #:auth #t))
    (define/public (org-members org)
      (get (format "/orgs/~a/members" org) #:auth #t))
    (define/public (org-public-members org)
      (get (format "/orgs/~a/public_members" org) #:auth #t))
 
-   (define/public (general-org-member? org category user)
-     (define-values (b headers) (get (format "/orgs/~a/~a/~a" org category user)
-				     #:auth #t
-				     #:json-result #f
-				     #:headers #t))
-     (= (status-code headers) 204))
-
    (define/public (org-member? org user)
-     (general-org-member? org "members" user))
+     (general-api-predicate get (format "/orgs/~a/members/~a" org user)))
    (define/public (org-public-member? org user)
-     (general-org-member? org "public_members" user))
+     (general-api-predicate get (format "/orgs/~a/public_members/~a" org user)))
 
    (define/public (org-delete-member! org user)
      (delete (format "/orgs/~a/members/~a" org user) #:auth #t))
 
    (define/public (set-org-membership-public! org user public?)
-     (if public?
-	 (put (format "/orgs/~a/public_members/~a" org user) #:auth #t)
-	 (delete (format "/orgs/~a/public_members/~a" org user) #:auth #t)))
+     (general-boolean-setter public? put delete (format "/orgs/~a/public_members/~a" org user)))
 
    (define/public (org-repos org)
      (get (format "/orgs/~a/repos" org) #:auth #t))
@@ -292,17 +362,16 @@
      (delete (format "teams/~a" id) #:auth #t))
 
    (define/public (team-member? id user)
-     (define-values (b headers) (get (format "/teams/~a/members/~a" id user)
-				     #:auth #t
-				     #:json-result #f
-				     #:headers #t))
-     (= (status-code headers) 204))
+     (general-api-predicate get (format "/teams/~a/members/~a" id user)))
 
    (define/public (set-team-membership! id user is-member?)
-     (if is-member?
-	 (put (format "/teams/~a/members/~a" id user) #:auth #t)
-	 (delete (format "/teams/~a/members/~a" id user) #:auth #t)))
-   ))
+     (general-boolean-setter is-member? put delete (format "/teams/~a/members/~a" id user)))
+
+   (define/public (team-manages-repo? team-id repo)
+     (general-api-predicate get (format "/teams/~a/repos/~a" team-id repo)))
+
+   (define/public (set-team-manages-repo! id name manages?)
+     (general-boolean-setter manages? put delete (format "/teams/~a/repos/~a" id name)))))
 
 (define issues-trait
   (trait 
@@ -444,10 +513,13 @@
 
 (define methods
   (trait->mixin
-   (trait-sum gh-trait gist-trait issues-trait collab-trait orgs-trait teams-trait)))
+   (trait-sum gh-trait gist-trait issues-trait
+	      collab-trait repos-trait orgs-trait teams-trait)))
 (define client-methods
   (trait->mixin
-   (trait-sum gh-trait gist-trait issues-trait client-trait collab-trait orgs-trait teams-trait)))
+   (trait-sum gh-trait gist-trait issues-trait
+	      client-trait
+	      collab-trait repos-trait orgs-trait teams-trait)))
 
 ;; for a real client
 (define client%
