@@ -266,8 +266,42 @@
 
 (define teams-trait
   (trait
-   (inherit get put post delete)
+   (inherit get put patch post delete)
 
+   (define/public (team-info id)
+     (get (format "/teams/~a" id) #:auth #t))
+
+   (define/public (team-members id)
+     (get (format "/teams/~a/members" id) #:auth #t))
+
+   (define/public (team-repos id)
+     (get (format "/teams/~a/repos" id) #:auth #t))
+
+   (define/public (create-team! org team-name repo-names permission)
+     (post (format "/orgs/~a/teams" org) (hash 'name team-name ;; string
+					       'repo_names repo-names ;; listof string
+					       'permission permission) ;; string
+	   #:auth #t))
+
+   (define/public (update-team! team-id team-name permission)
+     (patch (format "/teams/~a" team-id) (hash 'name team-name ;; string
+					       'permission permission) ;; string
+	   #:auth #t))
+
+   (define/public (delete-team! id)
+     (delete (format "teams/~a" id) #:auth #t))
+
+   (define/public (team-member? id user)
+     (define-values (b headers) (get (format "/teams/~a/members/~a" id user)
+				     #:auth #t
+				     #:json-result #f
+				     #:headers #t))
+     (= (status-code headers) 204))
+
+   (define/public (set-team-membership! id user is-member?)
+     (if is-member?
+	 (put (format "/teams/~a/members/~a" id user) #:auth #t)
+	 (delete (format "/teams/~a/members/~a" id user) #:auth #t)))
    ))
 
 (define issues-trait
