@@ -12,7 +12,8 @@
             [o (mk-ok)])
         (values o c))))
 
-(define (get-username+password title 
+(define (get-username+password context
+			       title
                                [message "User Name"]
                                [password-message "Password"]
                                [parent #f]
@@ -22,6 +23,10 @@
   (define f (make-object dialog% title parent 300))
   (define ok? #f)
   (define (done ?) (set! ok? ?) (send f show #f))
+  (new message% [parent f] [label (format "You are creating an authorization token for: ~a"
+					  (token-context-name context))])
+  (new message% [parent f] [label (format "You are granting the following permissions: ~v"
+					  (token-context-scopes context))])
   (define username (new text-field% 
                         [label message]
                         [parent f]
@@ -65,11 +70,12 @@
   (send f show #t)
   (and ok? (list (send username get-value) (send password get-value))))
 
-(define (gui-auth)
-  (make-client (λ () (get-username+password 
-                      "Enter your GitHub login"
-                      "GitHub User Name"
-                      "GitHub Password"))))
+(define (gui-auth context)
+  (make-client context (λ () (get-username+password
+			      context
+			      "Enter your GitHub login"
+			      "GitHub User Name"
+			      "GitHub Password"))))
 
 (provide gui-auth
 	 get-username+password)

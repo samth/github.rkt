@@ -1,16 +1,31 @@
 #lang racket/base
 
 (require racket/class json net/url racket/port net/base64 racket/match
-         racket/format racket/trait net/head framework/preferences)
+         racket/format racket/trait net/head framework/preferences racket/serialize)
 
 (provide client%)
 
+;; Describes a key into the token store.
+;;
+;; The name is to be a human-readable string describing the token; the
+;; scopes, a list of strings describing API scopes per the API
+;; documentation.
+;;
+(struct token-context (name scopes) #:prefab)
+
 (define-local-member-name login)
 (define-local-member-name password)
-(preferences:set-default 'github:oauth-token #f (λ _ #t))
 
-(define (forget-github-token!)
-  (preferences:set 'github:oauth-token #f))
+(define PREFERENCE-NAME 'github:oauth-tokens)
+
+(preferences:set-default PREFERENCE-NAME (hash) (λ _ #t))
+(preferences:set-un/marshall PREFERENCE-NAME serialize deserialize)
+
+(define (forget-all-github-tokens!)
+  (preferences:set PREFERENCE-NAME (hash)))
+
+(define (forget-github-token! context)
+  (preferences:set PREFERENCE-NAME (hash-remove (preferences:get PREFERENCE-NAME) context)))
 
 (define ua-header
   "User-Agent: Racket 'octokit' package; github.com/samth/octokit.rkt")
@@ -312,17 +327,20 @@
 (define client-trait 
   (trait 
    (inherit get post)
-   (inherit-field oauth-token)
+   (inherit-field oauth-token-context oauth-token)
    
    (define/public (get-token [options (hash)])
       (post "/authorizations" options #:auth 'basic))
    
-   (define/public (get+save-token [options (hash)])
+   (define/public (get+save-token c)
+     (define options (hash 'note (token-context-name c)
+			   'scopes (token-context-scopes c)))
      (define-values (r hs)
        (post "/authorizations" options #:auth 'basic #:headers #t))     
      (unless (= 201 (status-code hs))
        (error 'get+save-token "failed to retrieve token"))     
      (define token (hash-ref r 'token))
+     (set! oauth-token-context c)
      (set! oauth-token token))
    
    (define/public (authorizations [n #f])
@@ -337,49 +355,57 @@
 
 (define client-state%
   (class github%    
-    (init-field [login #f] [oauth-token #f] [password #f])
+    (init-field [login #f] [oauth-token-context #f] [oauth-token #f] [password #f])
     (super-new)    
     
-    (define/public (load-token)
-      (define p-token (preferences:get 'github:oauth-token))
+    (define/public (load-token c)
+      (define p-token (hash-ref (preferences:get PREFERENCE-NAME) c #f))
       (if (string? p-token)
-          (and (set! oauth-token p-token) #t)
+	  (begin (set! oauth-token-context c)
+		 (set! oauth-token p-token)
+		 #t)
           #f))
     
     (define/public (delete-token)
-      (set! oauth-token #f)
-      (forget-github-token!))
+      (forget-github-token! oauth-token-context)
+      (set! oauth-token-context #f)
+      (set! oauth-token #f))
     
     (define/public (write-token)
-      (if oauth-token
-          (preferences:set 'github:oauth-token oauth-token)
-          (error 'write-token "no token available to write")))
+      (when (not (and oauth-token-context oauth-token))
+	(error 'write-token "no token or token context available to save"))
+      (preferences:set PREFERENCE-NAME
+		       (hash-set (preferences:get PREFERENCE-NAME)
+				 oauth-token-context
+				 oauth-token)))
     
-    (define/public (token-available?)
-      (or oauth-token (load-token)))
+    (define/public (token-available? c)
+      (or (and (equal? oauth-token-context c) oauth-token)
+	  (load-token c)))
     
-    (define/public (authorize #:scopes [scopes (list "gist" "public_repo")])
-      (unless (token-available?)
+    (define/public (authorize c)
+      (unless (token-available? c)
         (unless (and login password)
           (error 'authorize
                  "login name and password required for authorization"))
-        (send this get+save-token (hash 'scopes scopes)))
+        (send this get+save-token c))
       (write-token))
     
-    (define/public (reauthorize)      
+    (define/public (reauthorize)
+      (define c oauth-token-context)
       (delete-token)
-      (authorize))))
+      (authorize c))))
 
-(define (make-client callback)
+(define (make-client context callback)
   (define c (new client%))
-  (if (send c load-token)
+  (if (send c load-token context)
       c
       (match (callback)
 	[#f #f]
 	[(list l p)
 	 (set-field! login c l)
 	 (set-field! password c p)
-	 (send c authorize)
+	 (send c authorize context)
 	 c])))
 
 (define methods
@@ -395,4 +421,9 @@
 ;; for un-authenticated use
 (define octokit%  (methods (http-mixin ((trait->mixin no-auth-trait) github%))))
 
-(provide client% octokit% make-client forget-github-token!)
+(provide client%
+	 octokit%
+	 make-client
+	 forget-github-token!
+	 forget-all-github-tokens!
+	 (struct-out token-context))

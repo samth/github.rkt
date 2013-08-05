@@ -9,6 +9,9 @@
 (provide tool@)
 
 (define-runtime-path github-logo "GitHub-Mark-16px.png")
+
+(define tool-token-context (token-context "DrRacket Github Tool"
+					  (list "gist" "public_repo")))
  
 (define tool@
   (unit
@@ -42,7 +45,7 @@
                             n]
                            [else "unnamed.rkt"])))
       (define frame (send (send text get-tab) get-frame))
-      (define client (gui-auth))
+      (define client (gui-auth tool-token-context))
       (define result
         (send client create-gist (hash name (send text get-flattened-text))))
       (define url (hash-ref result 'html_url))
