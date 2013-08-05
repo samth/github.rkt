@@ -48,8 +48,10 @@
       (define client (gui-auth tool-token-context))
       (define result
         (send client create-gist (hash name (send text get-flattened-text))))
-      (define url (hash-ref result 'html_url))
-      (send frame set-status-text url))
+      (define url (hash-ref result 'html_url #f))
+      (when url ;; There will be no html_url field if there was no
+		;; input text to place in the gist, e.g. empty buffer.
+	(send frame set-status-text url)))
  
     (define (phase1) (void))
     (define (phase2) (void))
