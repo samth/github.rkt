@@ -161,7 +161,7 @@
      ;; use `request` explicitly b/c this doesn't return JSON
      (post "/markdown" (hash 'text content 'mode mode 'context ctx)
            #:auth #f #:json-result #f))
-   (define/public (rate-limit) (get "/rate_limit"))))
+   (define/public (rate-limit) (get "/rate_limit" #:auth #t))))
 
 (define (->symbol v) (if (symbol? v) v (string->symbol (~a v))))
 
@@ -310,6 +310,16 @@
      (delete (format "/repos/~a" repo) #:auth #t))
 
    ))
+
+(define user-trait
+  (trait
+   (inherit get)
+
+   (define/public (user-info id-or-login)
+     (get (if (number? id-or-login)
+	      (format "/user/~a" id-or-login)
+	      (format "/users/~a" id-or-login))
+	  #:auth #t))))
 
 (define orgs-trait
   (trait
@@ -519,12 +529,12 @@
 (define methods
   (trait->mixin
    (trait-sum gh-trait gist-trait issues-trait
-	      collab-trait repos-trait orgs-trait teams-trait)))
+	      collab-trait repos-trait user-trait orgs-trait teams-trait)))
 (define client-methods
   (trait->mixin
    (trait-sum gh-trait gist-trait issues-trait
 	      client-trait
-	      collab-trait repos-trait orgs-trait teams-trait)))
+	      collab-trait repos-trait user-trait orgs-trait teams-trait)))
 
 ;; for a real client
 (define client%
