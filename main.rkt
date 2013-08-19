@@ -3,7 +3,12 @@
 (require racket/class json net/url racket/port net/base64 racket/match
          racket/format racket/trait net/head framework/preferences racket/serialize)
 
-(provide client%)
+(provide client%
+	 octokit%
+	 make-client
+	 forget-github-token!
+	 forget-all-github-tokens!
+	 (struct-out token-context))
 
 ;; Describes a key into the token store.
 ;;
@@ -526,10 +531,3 @@
   (client-methods (http-mixin ((trait->mixin auth-trait) client-state%))))
 ;; for un-authenticated use
 (define octokit%  (methods (http-mixin ((trait->mixin no-auth-trait) github%))))
-
-(provide client%
-	 octokit%
-	 make-client
-	 forget-github-token!
-	 forget-all-github-tokens!
-	 (struct-out token-context))
