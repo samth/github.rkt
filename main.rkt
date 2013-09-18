@@ -49,9 +49,10 @@
     (inherit-field endpoint)
     (inherit mk-auth has-auth?)
     (super-new)
-    (define/public (request method url [data 'null]
+    (define/public (request method url0 [data 'null]
                             #:auth [auth #f] #:json-result [json? #t]
                             #:headers [headers? #f])
+      (define url (if (url? url0) url0 (string->url url0)))
       (define auth-header 
         (case auth
           [(#f) #f]
@@ -60,7 +61,7 @@
           [(#t) (mk-auth)]))
       (define hs (filter values (list auth-header ua-header)))
       (define (simple f)
-        (define result-port (f (string->url url) hs))
+        (define result-port (f url hs))
         (define headers (purify-port result-port)) ;; currently ignored
         (define result 
           ((if json? bytes->jsexpr values) (port->bytes result-port)))
@@ -70,7 +71,7 @@
       (match method
         ['get (define-values (p headers)
                 (get-pure-port/headers 
-                 (string->url url) hs
+                 url hs
                  #:redirections 5))
               (define result (bytes->jsexpr (port->bytes p)))
               (if headers? (values result headers) result)]
@@ -86,7 +87,7 @@
       (begin (define/public (method url data #:auth [auth #f]
                                     #:headers [headers #f]
                                     #:json-result [json? #t])
-               (request 'method (string-append endpoint url) data
+               (request 'method (combine-url/relative endpoint url) data
                         #:auth auth #:json-result json? #:headers headers))
              ...))
     (define-syntax-rule (def-http method ...)
@@ -94,11 +95,23 @@
                                     #:auth [auth #f]
                                     #:headers [headers #f]
                                     #:json-result [json? #t])
-               (request 'method (string-append endpoint url)
+               (request 'method (combine-url/relative endpoint url)
                         #:auth auth #:json-result json? #:headers headers))
              ...))
     (def-http/body post patch)
     (def-http      get put delete head)
+
+    (define/public (get/pagination url #:auth [auth #f])
+      (define-values (b headers) (get url #:auth auth #:headers #t))
+      (define link-header (extract-field "Link" headers))
+      (define pieces (if link-header
+			 (regexp-match* #rx"(<([^>]+)>; +rel=\"([^\"]+)\")"
+					link-header
+					#:match-select values)
+			 '()))
+      (define next-piece (findf (lambda (p) (string-ci=? (cadddr p) "next")) pieces))
+      (define next-url (and next-piece (caddr next-piece)))
+      (values b (and next-url (lambda () (get/pagination next-url #:auth auth)))))
     
     (define/public (get/check-status url #:auth [auth #f])
       (define-values (b headers)
@@ -323,7 +336,7 @@
 
 (define orgs-trait
   (trait
-   (inherit get put delete)
+   (inherit get put delete get/pagination)
 
    (define/public (user-orgs)
      (get (format "/user/orgs") #:auth #t))
@@ -344,7 +357,7 @@
      (general-boolean-setter public? put delete (format "/orgs/~a/public_members/~a" org user)))
 
    (define/public (org-repos org)
-     (get (format "/orgs/~a/repos" org) #:auth #t))
+     (get/pagination (format "/orgs/~a/repos" org) #:auth #t))
 
    (define/public (org-teams org)
      (get (format "/orgs/~a/teams" org) #:auth #t))))
@@ -468,7 +481,7 @@
  
 (define github% 
   (class object% 
-    (init-field [endpoint "https://api.github.com"])
+    (init-field [endpoint (string->url "https://api.github.com")])
     (super-new)))
 
 (define client-state%
