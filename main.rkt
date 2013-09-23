@@ -80,7 +80,8 @@
         ['patch (simple/post post-impure-port #:data (jsexpr->bytes data))]
         ['head (simple head-impure-port)]
         ['delete (simple delete-impure-port)]
-        ['put (simple/post put-impure-port)]))
+        ['put (simple/post put-impure-port)]
+	['put/data (simple/post put-impure-port #:data (jsexpr->bytes data))]))
     
     
     (define-syntax-rule (def-http/body method ...)
@@ -98,7 +99,7 @@
                (request 'method (combine-url/relative endpoint url)
                         #:auth auth #:json-result json? #:headers headers))
              ...))
-    (def-http/body post patch)
+    (def-http/body post patch put/data)
     (def-http      get put delete head)
 
     (define/public (get/pagination url #:auth [auth #f])
@@ -259,7 +260,7 @@
 
 (define repos-trait
   (trait
-   (inherit get put post delete)
+   (inherit get put put/data post delete)
 
    (define/public (user-repos [user #f])
      (get (if user
@@ -322,6 +323,23 @@
    (define/public (delete-repo! repo)
      (delete (format "/repos/~a" repo) #:auth #t))
 
+   (define/public (watch-info owner repo)
+     (get (format "/repos/~a/~a/subscription" owner repo) #:auth #t))
+
+   (define/public (watching? owner repo)
+     (define j (watch-info owner repo))
+     ;; 404 gives us a JSON document lacking a subscribed field, and
+     ;; means that we're not watching.
+     (hash-ref j 'subscribed #f))
+
+   (define/public (set-watch! owner repo [subscribed #t] [ignored #f])
+     (put/data (format "/repos/~a/~a/subscription" owner repo)
+	       (hash 'subscribed subscribed
+		     'ignored ignored)
+	       #:auth #t))
+
+   (define/public (clear-watch! owner repo)
+     (delete (format "/repos/~a/~a/subscription" owner repo) #:auth #t))
    ))
 
 (define user-trait
