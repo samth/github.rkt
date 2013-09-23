@@ -344,13 +344,17 @@
 
 (define user-trait
   (trait
-   (inherit get)
+   (inherit get get/pagination)
 
    (define/public (user-info id-or-login)
      (get (if (number? id-or-login)
 	      (format "/user/~a" id-or-login)
 	      (format "/users/~a" id-or-login))
-	  #:auth #t))))
+	  #:auth #t))
+
+   (define/public (user-watches)
+     (get/pagination "/user/subscriptions" #:auth #t))
+   ))
 
 (define orgs-trait
   (trait
