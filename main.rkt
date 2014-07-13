@@ -10,7 +10,7 @@
 (preferences:set-default 'github:oauth-token #f (λ _ #t))
 
 (define ua-header
-  "User-Agent: Racket 'octokit' package; github.com/samth/octokit.rkt")
+  "User-Agent: Racket 'github.rkt' package; github.com/samth/github.rkt")
 
 (define (http-authorization-header username password)
   (let ([username-bytes (string->bytes/utf-8 username)]
@@ -342,6 +342,6 @@
 (define client%
   (client-methods (http-mixin ((trait->mixin auth-trait) client-state%))))
 ;; for un-authenticated use
-(define octokit%  (methods (http-mixin ((trait->mixin no-auth-trait) github%))))
+(define simple-client%  (methods (http-mixin ((trait->mixin no-auth-trait) github%))))
 
-(provide client% octokit% make-client)
+(provide client% simple-client% make-client)

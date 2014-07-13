@@ -6,7 +6,7 @@ Example:
 
 ```racket
 #lang racket
-(require octokit)
-(define c (new octokit%))
+(require github)
+(define c (new simple-client%))
 (hash-ref (send c create-gist (hash "a-file" "some content")) 'html_url)
 ```
