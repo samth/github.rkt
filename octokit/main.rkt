@@ -49,9 +49,31 @@
     (inherit-field endpoint)
     (inherit mk-auth has-auth?)
     (super-new)
+
     (define/public (request method url0 [data 'null]
                             #:auth [auth #f] #:json-result [json? #t]
                             #:headers [headers? #f])
+      (log-info "Github request: URL ~a, method ~a, data ~v, auth ~a, ~a format, ~a headers"
+		(url->string url0)
+		method
+		data
+		auth
+		(if json? "JSON" "XML")
+		(if headers? "returning" "not returning"))
+      (call-with-values (lambda () (send this request/no-logging method url0 data #:auth auth #:json-result json? #:headers headers?))
+	(lambda results
+	  (match results
+	    [(list headers body)
+	     (log-info "Github reply:\n~v\n~a" headers body)]
+	    [(list body)
+	     (log-info "Github reply:\n~a" body)]
+	    [_
+	     (log-info "Github reply: ~v" results)])
+	  (apply values results))))
+
+    (define/public (request/no-logging method url0 [data 'null]
+				       #:auth [auth #f] #:json-result [json? #t]
+				       #:headers [headers? #f])
       (define url (if (url? url0) url0 (string->url url0)))
       (define auth-header 
         (case auth
