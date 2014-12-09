@@ -27,9 +27,10 @@
     (inherit-field endpoint)
     (inherit mk-auth has-auth?)
     (super-new)
-    (define/public (request method url [data 'null]
+    (define/public (request method url [data 'null] #:raw [raw-data #f]
                             #:auth [auth #f] #:json-result [json? #t]
-                            #:headers [headers? #f])
+                            #:headers [headers? #f]
+                            #:extra-headers [extra-headers null])
       (define auth-header 
         (case auth
           [(#f) #f]
@@ -46,6 +47,7 @@
                 (close-input-port result-port)))
       (define (simple/post f #:data [data #""])
         (simple (λ (u hs) (f u data hs))))
+      (define d (if raw-data data (jsexpr->bytes data)))
       (match method
         ['get (define-values (p headers)
                 (get-pure-port/headers 
@@ -54,31 +56,36 @@
               (define result (read-json p))
               (begin0 (if headers? (values result headers) result)
                       (close-input-port p))]
-        ['post (simple/post post-impure-port #:data (jsexpr->bytes data))]
+        ['post (simple/post post-impure-port #:data d)]
         ;; net/url doesn't support PATCH so we use POST
-        ['patch (simple/post post-impure-port #:data (jsexpr->bytes data))]
+        ['patch (simple/post post-impure-port #:data d)]
         ['head (simple head-impure-port)]
         ['delete (simple delete-impure-port)]
-        ['put (simple/post put-impure-port)]))
+        ['put (simple/post put-impure-port  #:data d)]))
     
     
     (define-syntax-rule (def-http/body method ...)
       (begin (define/public (method url data #:auth [auth #f]
                                     #:headers [headers #f]
-                                    #:json-result [json? #t])
+                                    #:json-result [json? #t]
+                                    #:extra-headers [extra-headers null]
+                                    #:raw-data [raw-data #f])
                (request 'method (string-append endpoint url) data
-                        #:auth auth #:json-result json? #:headers headers))
+                        #:auth auth #:json-result json? #:headers headers
+                        #:extra-headers extra-headers #:raw-data raw-data))
              ...))
     (define-syntax-rule (def-http method ...)
       (begin (define/public (method url
                                     #:auth [auth #f]
                                     #:headers [headers #f]
+                                    #:extra-headers [extra-headers null]
                                     #:json-result [json? #t])
                (request 'method (string-append endpoint url)
-                        #:auth auth #:json-result json? #:headers headers))
+                        #:auth auth #:json-result json? #:headers headers
+                        #:extra-headers extra-headers))
              ...))
-    (def-http/body post patch)
-    (def-http      get put delete head)
+    (def-http/body post patch put)
+    (def-http      get delete head)
     
     (define/public (get/check-status url #:auth [auth #f])
       (define-values (b headers)
@@ -210,17 +217,61 @@
      (get/check-status (format "/repos/~a/collaborators/~a" repo user)
                        #:auth 'maybe))))
 
+(require (for-syntax racket/list racket/base syntax/parse racket/syntax))
+(begin-for-syntax
+  (define-splicing-syntax-class auth
+    (pattern [~seq #:auth a]
+             #:with auth #'a)
+    (pattern [~seq]
+             #:with auth #''maybe))
+  (define (parse-args str p)
+    (define l (regexp-split "/" str))
+    (for/list ([i l]
+               #:when (regexp-match "^:" i))
+      (format-id p (substring i 1))))
+  (define (parse-fmt str)
+    (define l (regexp-split "/" str))
+    (define l* (for/list ([i l])
+                 (if (regexp-match "^:" i) "~a" i)))
+    (datum->syntax #'here (apply string-append (add-between l* "/"))))
+  (define (simplify str)
+    (regexp-replace "/:owner/:repo/" str "/:repo/"))
+  (define (symbol->string* s)
+    (if (string? s) s (symbol->string s)))
+  (define-syntax-class github-path
+    [pattern (~or p:id p:str)
+             #:attr pth (simplify (symbol->string* (syntax-e #'p)))
+             #:with (args ...) (parse-args (attribute pth) #'p)
+             #:with fmt (parse-fmt (attribute pth))]))
+
+(define-syntax (api stx)
+  (syntax-parse stx
+    [(_ name:id (~datum get) path:github-path a:auth)
+     (define/with-syntax g (datum->syntax stx 'get))
+     #'(define/public (name path.args ...)
+         (g (format path.fmt path.args ...) #:auth a.auth))]
+    [(_ name:id (~and k (~or (~datum put) (~datum post) (~datum patch))) path:github-path a:auth data:expr extra ...)
+     (define/with-syntax meth (case (syntax-e #'k)
+                                [(PUT put) (datum->syntax #'k 'put)]
+                                [(POST post PATCH patch) (datum->syntax #'k 'post)]))
+     #'(define/public (name path.args ...)
+         (meth (format path.fmt path.args ...) data #:auth a.auth extra ...))]
+    [(_ (name:id extra-args ...) (~and k (~or (~datum put) (~datum post) (~datum patch))) path:github-path a:auth data:expr extra ...)
+     (define/with-syntax meth (case (syntax-e #'k)
+                                [(PUT put) (datum->syntax #'k 'put)]
+                                [(POST post PATCH patch) (datum->syntax #'k 'post)]))
+     #'(define/public (name path.args ... extra-args ...)
+         (meth (format path.fmt path.args ...) data #:auth a.auth extra ...))]))
+
 (define hook-trait
   (trait
    (inherit get put post delete patch get/check-status)
-   (define/public (hooks repo)
-     (get (format "/repos/~a/hooks" repo) #:auth #t))
-   (define/public (add-hook repo hook config #:events [events (list "push")] #:active? [active #t])
-     (post (format "/repos/~a/hooks" repo) #:auth #t
-           (hash 'active active
-                 'events events
-                 'config config
-                 'name hook)))
+   [api hooks get /repos/:repo/hooks]
+   [api (add-hook hook config #:events [events (list "push")] #:active? [active #t])
+        post /repos/:repo/hooks (hash 'active active
+                                      'events events
+                                      'config config
+                                      'name hook)]
    (define/public (add-irc-hook repo server channel [nick "GitHubBot"]
                                 #:events [events (list "push")] #:active? [active #t])
      (add-hook repo "irc" 
@@ -233,6 +284,26 @@
                (hash 'address address 'send_from_author (if author "1" "0"))
                #:events events #:active? active))))
 
+(define (->bytes s)
+  (cond [(string? s) (string->bytes/utf-8 s)]
+        [(bytes? s) s]))
+
+(define organization-trait
+  (trait
+   (inherit get put post delete patch get/check-status)
+   [api organization-repos get "/orgs/:org/repos"]
+   [api repo-teams get "/repos/:repo/teams"]
+   [api add-repo-to-team put "/teams/:id/repos/:repo" #""
+        #:raw-data #t #:extra-headers (list "Content-Length: 0")]))
+
+(define contents-trait
+  (trait
+   (inherit get put post delete patch get/check-status)
+   [api contents get "/repos/:repo/contents/:path"]
+   [api (create-file message data) post "/repos/:repo/contents/:path"
+        (hash 'path path 'message message
+              'data (bytes->string/utf-8 (base64-encode (->bytes data))))]))
+
 (define issues-trait
   (trait 
    ;; none of the query parameters are supported
@@ -241,29 +312,21 @@
      (cond [repo (get (format "/repos/~a/issues" repo) #:auth 'maybe)]
            [org (get (format "/orgs/~a/issues" org) #:auth #t)]
            [else (get (format "/user/issues") #:auth #t)]))
-   (define/public (issue repo n)
-     (get (format "/repos/~a/issues/~a" repo n) #:auth 'maybe))
-   (define/public (create-issue repo title [body 'null] [options (hash)])
-     (post (format "/repos/~a/issues" repo)
-           (hash-set* options 'title title 'body body)
-           #:auth #t))
-   (define/public (edit-issue repo n [title 'null] [body 'null] [opt (hash)])
-     (patch (format "/repos/~a/issues/~a" repo n)
-            (hash-set* opt 'title title 'body body)
-            #:auth #t))
+   [api issue get "/repos/:repo/issues/:n"]
+   [api (create-issue title body options) post "/repos/:repo/issues"
+        (hash-set* options 'title title 'body body)]
+   [api (edit-issue title body options) post "/repos/:repo/issues/:n"
+        (hash-set* options 'title title 'body body)]
    ;; n is issue number or 'all
    (define/public (issue-comments repo n)
      (if (eq? n 'all)
          (get (format "/repos/~a/issues/comments" repo) #:auth 'maybe)
          (get (format "/repos/~a/issues/~a/comments" repo n) #:auth 'maybe)))
-   (define/public (issue-comment repo n id)
-     (get (format "/repos/~a/issues/~a/comments/~a" repo n id) #:auth 'maybe))
-   (define/public (comment-issue repo n comment)
-     (post (format "/repos/~a/issues/~a/comments" repo n)
-           (hash 'body comment) #:auth #t))
-   (define/public (edit-issue-comment repo n id comment)
-     (patch (format "/repos/~a/issues/~a/comments/~a" repo n id)
-            (hash 'body comment) #:auth #t))
+   [api issue-comment get "/repos/:repo/issues/:n/comments/:id"]
+   [api (add-issue-comment comment) post "/repos/:repo/issues/:n/comments"
+        (hash 'body comment)]
+   [api (edit-issue-comment comment) post "/repos/:repo/issues/:n/comments/:id"
+        (hash 'body comment)]
    (define/public (delete-issue-comment repo n id)
      (delete (format "/repos/~a/issues/~a/comments/~a" repo n id) #:auth #t))
    (define/public (create-issue-label repo label [color "FFFFFF"])
