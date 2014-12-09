@@ -1,7 +1,8 @@
 #lang racket/base
 
 (require racket/class json net/url racket/port net/base64 racket/match
-         racket/format racket/trait net/head framework/preferences)
+         racket/format racket/trait net/head framework/preferences
+         racket/file)
 
 (provide client%)
 
@@ -10,7 +11,7 @@
 (preferences:set-default 'github:oauth-token #f (λ _ #t))
 
 (define ua-header
-  "User-Agent: Racket 'github.rkt' package; github.com/samth/github.rkt")
+  "User-Agent: Racket 'github' package; github.com/samth/github.rkt")
 
 (define (http-authorization-header username password)
   (let ([username-bytes (string->bytes/utf-8 username)]
@@ -38,10 +39,11 @@
       (define hs (filter values (list auth-header ua-header)))
       (define (simple f)
         (define result-port (f (string->url url) hs))
-        (define headers (purify-port result-port)) ;; currently ignored
+        (define headers (purify-port result-port))
         (define result 
-          ((if json? bytes->jsexpr values) (port->bytes result-port)))
-        (if headers? (values result headers) result))
+          ((if json? read-json port->bytes) result-port))
+        (begin0 (if headers? (values result headers) result)
+                (close-input-port result-port)))
       (define (simple/post f #:data [data #""])
         (simple (λ (u hs) (f u data hs))))
       (match method
@@ -49,8 +51,9 @@
                 (get-pure-port/headers 
                  (string->url url) hs
                  #:redirections 5))
-              (define result (bytes->jsexpr (port->bytes p)))
-              (if headers? (values result headers) result)]
+              (define result (read-json p))
+              (begin0 (if headers? (values result headers) result)
+                      (close-input-port p))]
         ['post (simple/post post-impure-port #:data (jsexpr->bytes data))]
         ;; net/url doesn't support PATCH so we use POST
         ['patch (simple/post post-impure-port #:data (jsexpr->bytes data))]
@@ -112,7 +115,7 @@
              (unless (or password oauth-token)
                (error 'post "no authentication method available"))
              (if oauth-token 
-                 (format "Authorization: bearer ~a" oauth-token)
+                 (format "Authorization: token ~a" oauth-token)
                  (http-authorization-header login password))]))))
 
 ;; for general github methods that require no authorization
@@ -124,7 +127,7 @@
      ;; use `request` explicitly b/c this doesn't return JSON
      (post "/markdown" (hash 'text content 'mode mode 'context ctx)
            #:auth #f #:json-result #f))
-   (define/public (rate-limit) (get "/rate_limit"))))
+   (define/public (rate-limit) (get "/rate_limit" #:auth 'maybe))))
 
 (define (->symbol v) (if (symbol? v) v (string->symbol (~a v))))
 
@@ -206,6 +209,29 @@
    (define/public (collaborator? repo user)
      (get/check-status (format "/repos/~a/collaborators/~a" repo user)
                        #:auth 'maybe))))
+
+(define hook-trait
+  (trait
+   (inherit get put post delete patch get/check-status)
+   (define/public (hooks repo)
+     (get (format "/repos/~a/hooks" repo) #:auth #t))
+   (define/public (add-hook repo hook config #:events [events (list "push")] #:active? [active #t])
+     (post (format "/repos/~a/hooks" repo) #:auth #t
+           (hash 'active active
+                 'events events
+                 'config config
+                 'name hook)))
+   (define/public (add-irc-hook repo server channel [nick "GitHubBot"]
+                                #:events [events (list "push")] #:active? [active #t])
+     (add-hook repo "irc" 
+               (hash 'server server 'room channel 'nick nick)
+               #:events events #:active? active))
+   (define/public (add-email-hook repo address 
+                                  #:send-from-author [author #f]
+                                  #:events [events (list "push")] #:active? [active #t])
+     (add-hook repo "email" 
+               (hash 'address address 'send_from_author (if author "1" "0"))
+               #:events events #:active? active))))
 
 (define issues-trait
   (trait 
@@ -296,7 +322,10 @@
       (define p-token (preferences:get 'github:oauth-token))
       (if (string? p-token)
           (and (set! oauth-token p-token) #t)
-          #f))
+          (let ()
+            (define v (file->value (build-path (find-system-path 'home-dir) ".config" "racket_github_token")))
+            (when (symbol? v) (set! v (symbol->string v)))
+            (and (string? v) (set! oauth-token v) #t))))
     
     (define/public (delete-token)
       (set! oauth-token #f)
@@ -304,7 +333,10 @@
     
     (define/public (write-token)
       (if oauth-token
-          (preferences:set 'github:oauth-token oauth-token)
+          (begin (preferences:set 'github:oauth-token oauth-token)
+                 (with-output-to-file (build-path (find-system-path 'home-dir) ".config" "racket_github_token")
+                   (λ ()
+                     (write oauth-token))))
           (error 'write-token "no token available to write")))
     
     (define/public (token-available?)
@@ -331,12 +363,11 @@
               (send c authorize)])
   c)
 
-(define methods
-  (trait->mixin
-   (trait-sum gh-trait gist-trait issues-trait collab-trait)))
-(define client-methods
-  (trait->mixin
-   (trait-sum gh-trait gist-trait issues-trait client-trait collab-trait)))
+(define no-auth-traits (list gh-trait gist-trait issues-trait collab-trait hook-trait))
+(define auth-traits (append (list client-trait) no-auth-traits))
+
+(define methods (trait->mixin (apply trait-sum no-auth-traits)))
+(define client-methods (trait->mixin (apply trait-sum auth-traits)))
 
 ;; for a real client
 (define client%
@@ -345,3 +376,6 @@
 (define simple-client%  (methods (http-mixin ((trait->mixin no-auth-trait) github%))))
 
 (provide client% simple-client% make-client)
+
+(define c (new client%))
+(send c load-token)
