@@ -27,7 +27,7 @@
     (inherit-field endpoint)
     (inherit mk-auth has-auth?)
     (super-new)
-    (define/public (request method url [data 'null] #:raw [raw-data #f]
+    (define/public (request method url [data 'null] #:raw-data [raw-data #f]
                             #:auth [auth #f] #:json-result [json? #t]
                             #:headers [headers? #f]
                             #:extra-headers [extra-headers null])
