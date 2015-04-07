@@ -161,7 +161,7 @@
                #:auth #t)
          (delete (format "/gist/~a/comments/~a" n id) #:auth #t)))
    (define/public (create-gist #:public [public? #t]
-                               #:desc [desc 'null]
+                               #:desc [desc ""]
                                #:auth [auth 'maybe]
                                files)
      (post "/gists" #:auth auth
