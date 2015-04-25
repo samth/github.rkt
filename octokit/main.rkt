@@ -210,19 +210,19 @@
        [(? string?) (get (format "/users/~a/gists" u) #:auth 'maybe)]
        [#f          (get "/gists/public")]))
    (define/public (gist n)
-     (get (format "/gist/~a" n) #:auth 'maybe))
+     (get (format "/gists/~a" n) #:auth 'maybe))
    (define/public (gist-comment n [id #f])
-     (if id 
-         (get (format "/gist/~a/comments/~a" n id) #:auth 'maybe)
-         (get (format "/gist/~a/comments" n) #:auth 'maybe)))
+     (if id
+         (get (format "/gists/~a/comments/~a" n id) #:auth 'maybe)
+         (get (format "/gists/~a/comments" n) #:auth 'maybe)))
    (define/public (gist-add-comment n comment)
-     (post (format "/gist/~a/comments" n) (hash 'body comment) #:auth #t))
+     (post (format "/gists/~a/comments" n) (hash 'body comment) #:auth #t))
    ;; #f to delete
    (define/public (gist-edit-comment n id comment)
      (if comment 
-         (post (format "/gist/~a/comments/~a" n id) (hash 'body comment)
+         (post (format "/gists/~a/comments/~a" n id) (hash 'body comment)
                #:auth #t)
-         (delete (format "/gist/~a/comments/~a" n id) #:auth #t)))
+         (delete (format "/gists/~a/comments/~a" n id) #:auth #t)))
    (define/public (create-gist #:public [public? #t]
                                #:desc [desc 'null]
                                #:auth [auth 'maybe]
