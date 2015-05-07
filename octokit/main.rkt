@@ -385,6 +385,13 @@
 
    (define/public (clear-watch! owner repo)
      (delete (format "/repos/~a/~a/subscription" owner repo) #:auth #t))
+
+   ;; Contents - https://developer.github.com/v3/repos/contents/
+   ;; Get contents
+   ;; TODO - add "ref" parameter.
+   (define/public (get-contents owner repo path)
+     (get (format "/repos/~a/~a/contents/~a" owner repo path)
+          #:auth 'maybe))
    ))
 
 (define user-trait
