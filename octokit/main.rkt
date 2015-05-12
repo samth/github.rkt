@@ -210,19 +210,19 @@
        [(? string?) (get (format "/users/~a/gists" u) #:auth 'maybe)]
        [#f          (get "/gists/public")]))
    (define/public (gist n)
-     (get (format "/gist/~a" n) #:auth 'maybe))
+     (get (format "/gists/~a" n) #:auth 'maybe))
    (define/public (gist-comment n [id #f])
-     (if id 
-         (get (format "/gist/~a/comments/~a" n id) #:auth 'maybe)
-         (get (format "/gist/~a/comments" n) #:auth 'maybe)))
+     (if id
+         (get (format "/gists/~a/comments/~a" n id) #:auth 'maybe)
+         (get (format "/gists/~a/comments" n) #:auth 'maybe)))
    (define/public (gist-add-comment n comment)
-     (post (format "/gist/~a/comments" n) (hash 'body comment) #:auth #t))
+     (post (format "/gists/~a/comments" n) (hash 'body comment) #:auth #t))
    ;; #f to delete
    (define/public (gist-edit-comment n id comment)
      (if comment 
-         (post (format "/gist/~a/comments/~a" n id) (hash 'body comment)
+         (post (format "/gists/~a/comments/~a" n id) (hash 'body comment)
                #:auth #t)
-         (delete (format "/gist/~a/comments/~a" n id) #:auth #t)))
+         (delete (format "/gists/~a/comments/~a" n id) #:auth #t)))
    (define/public (create-gist #:public [public? #t]
                                #:desc [desc 'null]
                                #:auth [auth 'maybe]
@@ -280,6 +280,29 @@
      (get/check-status (format "/repos/~a/collaborators/~a" repo user)
                        #:auth 'maybe))))
 
+(define git-trait
+  (trait
+   (inherit get post)
+   ;; Git Blob API - https://developer.github.com/v3/git/blobs/
+   ;; Get a Blob
+   (define/public (get-blob user repo sha)
+     (get (format "/repos/~a/~a/git/blobs/~a" user repo sha)
+          #:auth 'maybe))
+   ;; Set a Blob
+   (define/public (create-blob user repo content encoding)
+     (post (format "/repos/~a/~a/git/blobs" user repo)
+           (hash 'content content    ;; string
+                 'encoding encoding) ;; string
+           #:auth #t))
+   ;; Git Trees API - https://developer.github.com/v3/git/trees/
+   ;; Get a Tree (Recursive)
+   (define/public (get-tree user repo sha [recursive #f])
+     (define u (format "/repos/~a/~a/git/trees/~a" user repo sha))
+     (get (if recursive
+              (string-append u "?recursive=1")
+              u)
+          #:auth 'maybe))))
+
 (define repos-trait
   (trait
    (inherit get put put/data post delete)
@@ -288,7 +311,7 @@
      (get (if user
 	      (format "/users/~a/repos" user)
 	      (format "/user/repos"))
-	  #:auth #t))
+	  #:auth 'maybe))
 
    (define/public (repo-info repo)
      (get (format "/repos/~a" repo) #:auth #t))
@@ -306,7 +329,7 @@
      (get (format "/repos/~a/tags" repo) #:auth #t))
 
    (define/public (repo-branches repo)
-     (get (format "/repos/~a/branches" repo) #:auth #t))
+     (get (format "/repos/~a/branches" repo) #:auth 'maybe))
 
    (define/public (repo-branch-info repo branch)
      (get (format "/repos/~a/branches/~a" repo branch) #:auth #t))
@@ -362,6 +385,13 @@
 
    (define/public (clear-watch! owner repo)
      (delete (format "/repos/~a/~a/subscription" owner repo) #:auth #t))
+
+   ;; Contents - https://developer.github.com/v3/repos/contents/
+   ;; Get contents
+   ;; TODO - add "ref" parameter.
+   (define/public (get-contents owner repo path)
+     (get (format "/repos/~a/~a/contents/~a" owner repo path)
+          #:auth 'maybe))
    ))
 
 (define user-trait
@@ -583,15 +613,20 @@
 	 (send c authorize context)
 	 c])))
 
+(define method-traits
+  (trait-sum collab-trait gh-trait gist-trait git-trait issues-trait
+             orgs-trait repos-trait teams-trait user-trait))
+
+(define client-traits
+  (trait-sum client-trait method-traits))
+
 (define methods
   (trait->mixin
-   (trait-sum gh-trait gist-trait issues-trait
-	      collab-trait repos-trait user-trait orgs-trait teams-trait)))
+   (trait-sum method-traits)))
+
 (define client-methods
   (trait->mixin
-   (trait-sum gh-trait gist-trait issues-trait
-	      client-trait
-	      collab-trait repos-trait user-trait orgs-trait teams-trait)))
+   (trait-sum client-traits)))
 
 ;; for a real client
 (define client%
